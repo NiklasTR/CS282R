@@ -1,0 +1,147 @@
+---
+title: "STAN tutorial"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Introduction
+
+By now we are familiar with the overall concept of probabilistic programing languages and the fundamental building blocks of STAN. 
+
+In this tutorial we will run a small bayesian linear regression example using STAN. We will cover: 
+
+* loading data and formatting it 
+* defining a STAN model 
+* running inference 
+* evalauting the sampling process 
+* visualizing the model
+
+# Installing packages 
+
+Please run this chunk manually before turning to the rest of the notebook. This might take some time to install. 
+
+```{r, eval = FALSE}
+install.packages("rstan")
+install.packages("tidyverse")
+
+install.packages("bayesplot")
+install.packages("tidybayes")
+install.packages("modelr")
+install.packages("brms")
+```
+
+
+# Preparing data for STAN 
+
+If in doubt, the best way to store data in R is in a dataframe. For the purpose of this tutorial we will load a small dataset from within the R language. 
+
+First, let's load some packages. 
+
+```{r}
+library(tidyverse) #"tidy" philosophy of data manipulation in R
+library(rstan) # stan interface 
+```
+
+Let's prepare our data and take a look at it. 
+
+```{r}
+df <- mtcars %>% 
+  rownames_to_column("name")
+
+df
+```
+
+# Defining a STAN model 
+
+## The effect of weight and cylinders on fuel efficiency?
+
+Next, we want to predict the fuel efficency of cars in our dataset as a function of the cars weight and the number of cylinders in the car's engine.
+
+```{r}
+df %>% 
+  ggplot(aes(wt, mpg)) +
+  geom_point() + 
+  theme_bw() + 
+  facet_grid(~ cyl) + 
+  labs(title = "Effect of cylinder number and weight")
+```
+
+We can fit a multivariate linear regression to this data. 
+
+```{r}
+model <- lm(mpg ~ wt + cyl, data = df)
+
+summary(model)
+```
+
+## Switching to STAN
+
+Now, let's turn to a probabilistic approach and define a STAN model to fit the data. 
+
+We define the STAN model in the STAN language, using the file **mtcars.stan**. For the sake of this excercise, let's define the model together.
+
+Next, we can start the model compilation from within R. 
+
+```{r}
+model_stan <- stan("mtcars.stan", 
+                   data = list(N=nrow(df),
+                               mpg = df$mpg,
+                               wt = df$wt,
+                               cyl = df$cyl),
+                   iter = 1000)
+```
+
+```{r}
+model_stan_summary <- summary(model_stan)
+model_stan_summary$summary
+```
+
+Per default, STAN uses 50% of the scheduled iterations per chain for warmup. The summary file gives an overview about the estimated values for the parameters and the probability intervals. 
+
+Next to the model parameters, we also estimated the error term sigma.
+
+The following elements of the table deserve additional explanation. 
+* *lp_* a scaled version of the sum of log-likelihoods across the dataset. According to the original paper it is the "log density up to a constant". 
+* *n_eff* is the effective sample size. This metric estimates the number of random (non-correlated) samples that would approximately render the same estimate. 
+* *Rhat* is the potential scale reduction factor on split chains (at convergence, we expect R_hat=1). In our example, the Markov chains for all parameters converged. If multiple Markov chains, do not converge to the same posterior estimate, the key assumptions of *ergodicity* may not be fulfilled. This could be due to an unfavorable geometry of our posterior distribution. 
+
+Per default, we run 4 MCMC chains to estimate the model parameters. 
+
+# Visualization 
+
+Let's visualize the model's parameters first. We load a dedicated package for visualization STAN based models in R. 
+
+```{r}
+library(bayesplot)
+
+posterior <- as.matrix(model_stan)
+
+mcmc_areas(posterior,
+           pars = c("beta", "gamma"))
+```
+
+In order to come back to our initial plot of the data we wanted to model, we are loading another set of more recent STAN based packages.
+
+We redefine our model, create a matrix of X values that we use to run inference on and finally sample 100 parameters from our model. Finally, we plot the 100 model estimates next to our data.
+
+```{r}
+library(tidybayes)
+library(modelr)
+library(brms)
+
+m_mpg_am = brm(mpg ~ wt + cyl, data = mtcars)
+
+mtcars %>%
+  data_grid(wt = seq_range(wt, n = 200), cyl) %>%
+  add_fitted_draws(m_mpg_am, n = 100) %>% 
+ # sample 100 fits from the posterior
+  ggplot(aes(x = wt, y = mpg)) +
+  geom_line(aes(y = .value, group = .draw), alpha = 1/20, color = "#08519C") +
+  geom_point(data = mtcars) +
+  theme_bw() + 
+  facet_grid(~ cyl) + 
+  labs(title = "Effect of cylinder number and weight")
+```
+
+
