@@ -1,0 +1,62 @@
+---
+title: "Stan Intro"
+output: html_notebook
+---
+
+```{r}
+library(rstan)
+library(gdata)
+library(bayesplot)
+```
+
+
+
+```{r}
+model <- lm(mpg ~ wt, data = mtcars)
+
+mtcars %>% 
+  ggplot(aes(mpg, wt)) + 
+  geom_point() + 
+  theme_classic()
+```
+
+
+```{r}
+stan_data <- list(mpg = mtcars$mpg,
+                  wt = mtcars$wt,
+                  N = length(mtcars$mpg))
+
+```
+
+```{r}
+write("// Stan model for simple linear regression
+
+data {
+ int < lower = 1 > N; // Sample size
+ vector[N] x; // Predictor
+ vector[N] y; // Outcome
+}
+
+parameters {
+ real alpha; // Intercept
+ real beta; // Slope (regression coefficients)
+ real < lower = 0 > sigma; // Error SD
+}
+
+model {
+ y ~ normal(alpha + x * beta , sigma);
+}
+
+generated quantities {
+} // The posterior predictive distribution",
+
+"stan_model1.stan")
+```
+
+```{r}
+stanc("stan_model1.stan")
+stan_model1 <- "stan_model1.stan"
+
+fit <- stan(file = stan_model1, data = stan_data, warmup = 500, iter = 1000, chains = 4, cores = 2, thin = 1)
+```
+
